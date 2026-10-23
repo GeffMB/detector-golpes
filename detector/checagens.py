@@ -156,7 +156,16 @@ def checar_concentracao(d: Dados) -> Sinal:
     t = "Concentração nas maiores carteiras"
     if not d.detentores or not d.token:
         motivo = d.erros.get("detentores") or d.erros.get("token") or "sem lista de detentores"
-        if "limite" in motivo:
+        grande_demais = "too many accounts" in motivo.lower()
+        conhecido = emissor_regulado(d.mint)
+        if conhecido and grande_demais:
+            return Sinal("concentracao", t, PESOS["concentracao"], "info",
+                         f"{conhecido[0]} tem milhões de detentores, mais do que o RPC consegue listar. "
+                         "Em stablecoins, as maiores carteiras costumam ser corretoras e o próprio emissor.")
+        if grande_demais:
+            motivo = ("o token tem contas demais para o RPC listar os maiores detentores; isso só acontece "
+                      "com tokens muito grandes e estabelecidos")
+        elif "limite" in motivo:
             motivo = ("o RPC público da Solana recusou a consulta. Configure uma chave grátis da Helius "
                       "na variável SOLANA_RPC_URL (veja o README)")
         return _nv("concentracao", t, motivo)

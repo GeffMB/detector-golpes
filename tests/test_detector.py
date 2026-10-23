@@ -131,6 +131,24 @@ def test_usdc_real_sem_data_e_sem_concentracao():
     assert classificar(nota) == "RISCO BAIXO"
 
 
+def test_usdc_com_helius_contas_demais():
+    """Saída real com Helius: o RPC recusa listar detentores de tokens com 10 milhões+ de contas."""
+    d = _cenario_usdc(USDC)
+    d.detentores = None
+    d.erros["detentores"] = "RPC: Too many accounts requested (10000000 pubkeys), try adding filters"
+    s = checar_concentracao(d)
+    assert s.status == "info" and "milhões de detentores" in s.detalhe
+    nota, cobertura = calcular_nota(analisar(d))
+    assert (nota, cobertura) == (0, 100)
+
+
+def test_token_comum_com_contas_demais_explica_o_motivo():
+    d = dados_bons(detentores=None)
+    d.erros["detentores"] = "RPC: Too many accounts requested (10000000 pubkeys)"
+    s = checar_concentracao(d)
+    assert s.status == "nao_verificado" and "muito grandes" in s.detalhe
+
+
 def test_token_sem_data_com_muitos_pools_grandes_e_maduro():
     d = dados_bons(rugcheck={"lpLockedPct": 0, "risks": []},
                    mercado={"liquidez_total_usd": 50_000_000, "num_pools": 25, "criado_em_ms": None})
