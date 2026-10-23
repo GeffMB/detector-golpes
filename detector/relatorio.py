@@ -4,9 +4,10 @@ from __future__ import annotations
 from dataclasses import asdict
 
 from .checagens import Sinal, calcular_nota, classificar
+from .conhecidos import emissor_regulado
 from .fontes import Dados
 
-ICONES = {"risco": "[!]", "ok": "[ok]", "nao_verificado": "[?]"}
+ICONES = {"risco": "[!]", "ok": "[ok]", "info": "[i]", "nao_verificado": "[?]"}
 AVISO = ("Isto é uma análise automática de sinais técnicos, não uma recomendação de compra ou venda. "
          "Uma nota baixa não garante que o token seja seguro.")
 
@@ -46,7 +47,11 @@ def como_texto(d: Dados, sinais: list[Sinal]) -> str:
     if r["referencia_rugcheck"] is not None:
         linhas.append(f"  Referência RugCheck: {r['referencia_rugcheck']}/100")
     linhas.append("")
-    ordem = {"risco": 0, "nao_verificado": 1, "ok": 2}
+    conhecido = emissor_regulado(d.mint)
+    if conhecido:
+        linhas.append(_quebrar(f"Token conhecido: {conhecido[0]}, emitido pela {conhecido[1]}.", 2))
+        linhas.append("")
+    ordem = {"risco": 0, "nao_verificado": 1, "info": 2, "ok": 3}
     for s in sorted(sinais, key=lambda s: (ordem[s.status], -s.peso)):
         linhas.append(f"  {ICONES[s.status]} {s.titulo} (peso {s.peso})")
         linhas.append(_quebrar(s.detalhe, 6))

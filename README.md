@@ -50,6 +50,9 @@ $env:SOLANA_RPC_URL = "https://mainnet.helius-rpc.com/?api-key=SUA_CHAVE"
 
 - A nota é calculada **só sobre o que foi verificado**. Se uma fonte falhar, o sinal aparece como `[?]` e a **cobertura** mostra quanto da análise foi feita.
 - Contas de programa (pools, bonding curves, cofres) **não contam** como concentração: só carteiras de pessoas.
+- **Stablecoins reguladas** (USDC, USDT, PYUSD, em `detector/conhecidos.py`) têm emissão e congelamento ativos por exigência legal: esses sinais aparecem como `[i]` (informativo) e ficam fora da nota.
+- **Pools maduros** (mais de US$ 1 milhão e mais de 30 dias) dispensam a trava de liquidez: com tantos provedores, ninguém retira tudo de uma vez.
+- A idade usa o **pool mais antigo** do token, e o RPC tenta de novo automaticamente quando recusa por excesso de consultas.
 - Classificação: 0–20 risco baixo · 21–50 risco médio · 51–100 risco alto.
 
 ## Estrutura

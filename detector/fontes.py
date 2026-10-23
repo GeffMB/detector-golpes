@@ -35,8 +35,17 @@ class Dados:
     erros: dict[str, str] = field(default_factory=dict)
 
 
+ESPERAS_429 = (1.5, 4.0)  # segundos entre novas tentativas quando o RPC limita as consultas
+
+
 async def _rpc(client: httpx.AsyncClient, url: str, metodo: str, params: list) -> Any:
-    r = await client.post(url, json={"jsonrpc": "2.0", "id": 1, "method": metodo, "params": params})
+    corpo_req = {"jsonrpc": "2.0", "id": 1, "method": metodo, "params": params}
+    r = await client.post(url, json=corpo_req)
+    for espera in ESPERAS_429:
+        if r.status_code != 429:
+            break
+        await asyncio.sleep(espera)
+        r = await client.post(url, json=corpo_req)
     r.raise_for_status()
     corpo = r.json()
     if "error" in corpo:
@@ -94,12 +103,16 @@ async def melhor_pool(client: httpx.AsyncClient, mint: str) -> dict[str, Any] | 
         pares = pares.get("pairs") or []
     if not pares:
         return None
-    melhor = max(pares, key=lambda p: (p.get("liquidity") or {}).get("usd") or 0)
+    liq = lambda p: (p.get("liquidity") or {}).get("usd") or 0
+    melhor = max(pares, key=liq)
+    datas = [p["pairCreatedAt"] for p in pares if p.get("pairCreatedAt")]
     return {
         "dex": melhor.get("dexId"),
         "par": melhor.get("pairAddress"),
-        "liquidez_usd": (melhor.get("liquidity") or {}).get("usd"),
-        "criado_em_ms": melhor.get("pairCreatedAt"),
+        "liquidez_usd": liq(melhor) or None,
+        "liquidez_total_usd": sum(liq(p) for p in pares),
+        "num_pools": len(pares),
+        "criado_em_ms": min(datas) if datas else None,  # pool mais antigo ≈ idade do token
         "nome": (melhor.get("baseToken") or {}).get("name"),
         "simbolo": (melhor.get("baseToken") or {}).get("symbol"),
     }

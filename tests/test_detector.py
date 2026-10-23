@@ -9,6 +9,7 @@ from solders.pubkey import Pubkey
 
 from detector.checagens import (PESOS, analisar, calcular_nota, checar_concentracao, checar_idade,
                                 checar_liquidez, classificar)
+from detector import fontes
 from detector.fontes import Dados, TokenInvalido, coletar
 from detector.relatorio import como_texto
 
@@ -90,10 +91,61 @@ def test_relatorio_texto_em_portugues():
     assert "NOTA DE RISCO" in texto and "recomendação de compra" in " ".join(texto.split())
 
 
+USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+
+
+def _cenario_usdc(mint):
+    """Reproduz o resultado real do USDC: emissão e congelamento ativos, 0% de LP travada,
+    mas liquidez enorme, espalhada e antiga."""
+    return dados_bons(
+        mint=mint,
+        token={"programa": "x", "mint_authority": "circle", "freeze_authority": "circle",
+               "supply": 1_000_000, "decimais": 6},
+        rugcheck={"lpLockedPct": 0, "risks": [], "score_normalised": 1},
+        mercado={"liquidez_usd": 40_000_000, "liquidez_total_usd": 300_000_000, "num_pools": 120,
+                 "criado_em_ms": AGORA - 900 * 86_400_000, "nome": "USD Coin", "simbolo": "USDC"},
+    )
+
+
+def test_usdc_nao_e_falso_positivo():
+    sinais = {s.codigo: s for s in analisar(_cenario_usdc(USDC))}
+    assert sinais["mint"].status == "info" and "Circle" in sinais["mint"].detalhe
+    assert sinais["freeze"].status == "info"
+    assert sinais["liquidez"].status == "ok"
+    nota, cobertura = calcular_nota(list(sinais.values()))
+    assert classificar(nota) == "RISCO BAIXO"
+    assert cobertura == 100
+
+
+def test_memecoin_com_as_mesmas_permissoes_continua_alto():
+    d = _cenario_usdc(CARTEIRA[0])  # endereço qualquer, fora da lista de emissores regulados
+    d.mercado = {"liquidez_usd": 8_000, "liquidez_total_usd": 8_000, "num_pools": 1,
+                 "criado_em_ms": AGORA - 5 * 3_600_000}
+    nota, _ = calcular_nota(analisar(d))
+    assert classificar(nota) == "RISCO ALTO"
+
+
+def test_pool_grande_mas_novo_ainda_exige_trava():
+    d = dados_bons(rugcheck={"lpLockedPct": 10, "risks": []},
+                   mercado={"liquidez_total_usd": 2_000_000, "num_pools": 2,
+                            "criado_em_ms": AGORA - 2 * 86_400_000})
+    assert checar_liquidez(d).status == "risco"
+
+
+def test_relatorio_identifica_token_conhecido():
+    texto = como_texto(_cenario_usdc(USDC), analisar(_cenario_usdc(USDC)))
+    assert "Token conhecido: USD Coin (USDC)" in texto and "[i]" in texto
+
+
 # ---------- coletores com respostas simuladas das APIs ----------
 
-def _transporte(mint_info=True, rugcheck_status=200):
+def _transporte(mint_info=True, rugcheck_status=200, rpc_429=0):
+    falhas = {"restantes": rpc_429}
+
     def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.host == "rpc.teste" and falhas["restantes"] > 0:
+            falhas["restantes"] -= 1
+            return httpx.Response(429)
         if "rugcheck" in req.url.host:
             if rugcheck_status != 200:
                 return httpx.Response(rugcheck_status)
@@ -132,6 +184,8 @@ def test_coletar_monta_os_dados():
     assert d.token["freeze_authority"] == "F1" and d.token["supply"] == 1000
     assert d.detentores[0]["dono"] == CARTEIRA[0]
     assert d.mercado["dex"] == "pumpswap"          # escolhe o pool com mais liquidez
+    assert d.mercado["criado_em_ms"] == 1          # idade = pool mais antigo
+    assert d.mercado["liquidez_total_usd"] == 91000 and d.mercado["num_pools"] == 2
     assert d.rugcheck["lpLockedPct"] == 95.5
     assert d.erros == {}
 
@@ -139,6 +193,13 @@ def test_coletar_monta_os_dados():
 def test_coletar_endereco_inexistente():
     with pytest.raises(TokenInvalido):
         _coletar(mint_info=False)
+
+
+def test_rpc_tenta_de_novo_depois_de_limite(monkeypatch):
+    monkeypatch.setattr(fontes, "ESPERAS_429", (0, 0))
+    d = _coletar(rpc_429=2)                        # duas recusas seguidas, depois responde
+    assert d.token is not None and d.detentores is not None
+    assert d.erros == {}
 
 
 def test_coletar_sobrevive_a_falha_de_uma_fonte():
