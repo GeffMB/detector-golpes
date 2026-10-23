@@ -1,0 +1,3 @@
+httpx>=0.27
+solders>=0.21
+pytest>=8
