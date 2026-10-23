@@ -111,10 +111,36 @@ def test_usdc_nao_e_falso_positivo():
     sinais = {s.codigo: s for s in analisar(_cenario_usdc(USDC))}
     assert sinais["mint"].status == "info" and "Circle" in sinais["mint"].detalhe
     assert sinais["freeze"].status == "info"
-    assert sinais["liquidez"].status == "ok"
+    assert sinais["liquidez"].status == "info"
     nota, cobertura = calcular_nota(list(sinais.values()))
     assert classificar(nota) == "RISCO BAIXO"
     assert cobertura == 100
+
+
+def test_usdc_real_sem_data_e_sem_concentracao():
+    """Reproduz a saída real do usuário em 23/10: pools sem data e RPC recusando os detentores."""
+    d = _cenario_usdc(USDC)
+    d.mercado = {"liquidez_usd": 40_000_000, "liquidez_total_usd": 300_000_000, "num_pools": 30,
+                 "criado_em_ms": None, "nome": "USD Coin", "simbolo": "USDC"}
+    d.detentores = None
+    d.erros["detentores"] = "limite de consultas atingido; tente de novo em instantes"
+    sinais = {s.codigo: s for s in analisar(d)}
+    assert sinais["liquidez"].status == "info"
+    assert sinais["idade"].status == "info"
+    nota, _ = calcular_nota(list(sinais.values()))
+    assert classificar(nota) == "RISCO BAIXO"
+
+
+def test_token_sem_data_com_muitos_pools_grandes_e_maduro():
+    d = dados_bons(rugcheck={"lpLockedPct": 0, "risks": []},
+                   mercado={"liquidez_total_usd": 50_000_000, "num_pools": 25, "criado_em_ms": None})
+    assert checar_liquidez(d).status == "ok"
+
+
+def test_token_sem_data_com_poucos_pools_continua_exigindo_trava():
+    d = dados_bons(rugcheck={"lpLockedPct": 0, "risks": []},
+                   mercado={"liquidez_total_usd": 2_000_000, "num_pools": 2, "criado_em_ms": None})
+    assert checar_liquidez(d).status == "risco"
 
 
 def test_memecoin_com_as_mesmas_permissoes_continua_alto():

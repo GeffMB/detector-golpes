@@ -28,6 +28,12 @@ python analisar.py <endereço> --json
 python -m pytest -q
 ```
 
+### Atualizar para a versão mais recente
+
+```powershell
+powershell -ExecutionPolicy Bypass -File atualizar.ps1
+```
+
 ### RPC recomendado (grátis)
 
 O RPC público da Solana tem limite baixo e às vezes recusa consultas de detentores.

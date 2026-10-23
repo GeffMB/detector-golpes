@@ -47,6 +47,7 @@ LIQUIDEZ_BAIXA_USD = 5_000
 # a trava da liquidez deixa de ser um sinal relevante.
 LIQUIDEZ_MADURA_USD = 1_000_000
 IDADE_MADURA_DIAS = 30
+POOLS_MADUROS = 10  # sem data de criação, esta quantidade de pools grandes conta como token maduro
 
 
 @dataclass
@@ -120,12 +121,20 @@ def checar_liquidez(d: Dados) -> Sinal:
     if d.sem_pool:
         return _nv("liquidez", t, "nenhum pool em DEX encontrado; o token pode ainda estar "
                                   "na bonding curve de um launchpad")
+    conhecido = emissor_regulado(d.mint)
+    if conhecido:
+        return Sinal("liquidez", t, PESOS["liquidez"], "info",
+                     f"{conhecido[0]} é lastreado e resgatável na {conhecido[1]}: o valor não depende de "
+                     "um pool de DEX, então a trava da liquidez não se aplica.")
     total = (d.mercado or {}).get("liquidez_total_usd") or 0
+    pools = (d.mercado or {}).get("num_pools") or 0
     dias = _idade_dias(d)
-    if total >= LIQUIDEZ_MADURA_USD and dias is not None and dias >= IDADE_MADURA_DIAS:
-        pools = (d.mercado or {}).get("num_pools") or 0
+    antigo = dias is not None and dias >= IDADE_MADURA_DIAS
+    espalhado = dias is None and pools >= POOLS_MADUROS  # sem data, muitos pools indicam token estabelecido
+    if total >= LIQUIDEZ_MADURA_USD and (antigo or espalhado):
+        quando = f", existentes há {dias:.0f} dias" if dias is not None else ""
         return Sinal("liquidez", t, PESOS["liquidez"], "ok",
-                     f"Há US$ {_br(total)} de liquidez em {pools} pool(s), existentes há {dias:.0f} dias. "
+                     f"Há US$ {_br(total)} de liquidez em {pools} pool(s){quando}. "
                      "Com liquidez desse tamanho e espalhada entre muitos provedores, ninguém consegue "
                      "retirá-la de uma vez; a trava deixa de ser relevante.")
     pct = (d.rugcheck or {}).get("lpLockedPct")
@@ -147,6 +156,9 @@ def checar_concentracao(d: Dados) -> Sinal:
     t = "Concentração nas maiores carteiras"
     if not d.detentores or not d.token:
         motivo = d.erros.get("detentores") or d.erros.get("token") or "sem lista de detentores"
+        if "limite" in motivo:
+            motivo = ("o RPC público da Solana recusou a consulta. Configure uma chave grátis da Helius "
+                      "na variável SOLANA_RPC_URL (veja o README)")
         return _nv("concentracao", t, motivo)
     supply = d.token["supply"]
     if supply <= 0:
@@ -184,6 +196,11 @@ def checar_idade(d: Dados, agora_ms: float | None = None) -> Sinal:
     t = "Idade do token"
     criado = (d.mercado or {}).get("criado_em_ms")
     if not criado:
+        conhecido = emissor_regulado(d.mint)
+        if conhecido:
+            return Sinal("idade", t, PESOS["idade"], "info",
+                         f"{conhecido[0]} é uma stablecoin estabelecida; a data dos pools não é informada "
+                         "pela DexScreener, mas a idade não é um fator de risco para ela.")
         motivo = d.erros.get("mercado") or ("sem pool em DEX" if d.sem_pool else "data de criação desconhecida")
         return _nv("idade", t, motivo)
     agora_ms = agora_ms if agora_ms is not None else time.time() * 1000
